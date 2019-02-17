@@ -11,7 +11,7 @@ using namespace cv;
 using namespace std;
 
 int main(int argc, char *argv[]) {
-    if (argc < 1) {
+    if (argc < 2) {
         cout << "usage LaneDetection inputImage [options]" << endl;
         cout << "   --cuda Perform hough transform using CUDA (default)" << endl;
         cout << "   --seq Perform hough transform sequentially on the CPU" << endl;
