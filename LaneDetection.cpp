@@ -21,7 +21,7 @@ int main(int argc, char *argv[]) {
     // Read input image
     Mat image = imread(argv[1], IMREAD_GRAYSCALE);
     // Check which strategy to use for hough transform (CUDA or sequential)
-    int houghStrategy = argc > 1 && !strcmp(argv[2], "--seq") ? SEQUENTIAL : CUDA;
+    int houghStrategy = argc > 2 && !strcmp(argv[2], "--seq") ? SEQUENTIAL : CUDA;
 
     if (image.empty()) {
         cout << "Unable to open image" << endl;
