@@ -1,14 +1,9 @@
-#include <opencv2/core.hpp>
-#include <opencv2/imgcodecs.hpp>
-#include <opencv2/highgui.hpp>
-#include <iostream>
-#include "HoughTransform.cpp"
+#include "commons.h"
+#include "HoughTransform.h"
 
 #define CUDA 1
 #define SEQUENTIAL 2
 
-using namespace cv;
-using namespace std;
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
