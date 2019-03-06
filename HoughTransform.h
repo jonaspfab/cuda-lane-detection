@@ -1,3 +1,5 @@
+#include <math.h>
+#include "Line.h"
 #include "commons.h"
 
 /**
@@ -5,7 +7,7 @@
  *
  * @param image Input image on which hough transform is performed
  */
-void houghTransformSeq(Mat image) ;
+vector<Line> houghTransformSeq(Mat image) ;
 
 /**
  * Performs hough transform on given image using CUDA
