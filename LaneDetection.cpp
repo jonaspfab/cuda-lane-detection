@@ -1,5 +1,6 @@
 #include "commons.h"
 #include "HoughTransform.h"
+#include "Preprocessing.h"
 
 #define CUDA 1
 #define SEQUENTIAL 2
@@ -26,6 +27,9 @@ int main(int argc, char *argv[]) {
     vector<Line> linesFound;
 
     // Apply necessary pre-processing steps
+    image = filterLanes(image);
+    image = applyGaussianBlur(image);
+    image = applyCannyEdgeDetection(image);
 
     // Perform hough transform
     if (houghStrategy == CUDA) {
