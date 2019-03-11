@@ -33,7 +33,7 @@ int main(int argc, char *argv[]) {
 
     // Perform hough transform
     if (houghStrategy == CUDA) {
-        houghTransformCuda(image);
+        linesFound = houghTransformCuda(image);
     } else if (houghStrategy == SEQUENTIAL) {
         linesFound = houghTransformSeq(image);
     }
