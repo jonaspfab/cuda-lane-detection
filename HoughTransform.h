@@ -14,4 +14,5 @@ vector<Line> houghTransformSeq(Mat image) ;
  *
  * @param image Input image on which hough transform is performed
  */
-void houghTransformCuda(Mat image) ;
+
+vector<Line> houghTransformCuda(Mat image) ;

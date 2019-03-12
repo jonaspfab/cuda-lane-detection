@@ -74,7 +74,29 @@ vector<Line> houghTransformSeq(Mat img) {
 
 }
 
+__global__ void hough_kernel( unsigned char* img, int icols, int irows,
+															int* hough, int nRows, int nCols)
+{
+	//2D Index of current thread
+	int theta = threadIdx.x*STEP_SIZE;
+	double thetaRad = ((double)theta*3.14159265358979323846)/180.0;
 
+	for(int i = 0; i < icols; i++) {
+		for(int j = 0; j < irows; j++) {
+			//Location of gray pixel in output
+			int gray_tid  = (j * icols) + i;
+
+   		if (((uchar) img[gray_tid]) == 0)
+   			continue;
+
+			int rho = (((double)i*cos(thetaRad)) + ((double)j*sin(thetaRad)));
+
+			hough[(rho + (nRows / 2)) * nCols + theta] += 1;
+
+		}
+	}
+
+}
 
 /**
  * Performs hough transform on given image using CUDA
@@ -82,5 +104,47 @@ vector<Line> houghTransformSeq(Mat img) {
  * @param img Input image on which hough transform is performed
  */
 vector<Line> houghTransformCuda(Mat img) {
+	int size = img.cols * img.rows * sizeof(uchar);
+	vector<Line> lines;
 
+	int nRows = (int) ceil(sqrt(img.rows * img.rows + img.cols * img.cols)) * 2;
+	int nCols = 180 / STEP_SIZE;
+
+	cout<<img.cols<<"x"<<img.rows<<endl;
+	cout<<nCols<<"x"<<nRows<<endl;
+
+	int *accumulator;
+	accumulator = new int[nCols * nRows]();
+
+	// device space for original image
+	uchar *d_img;
+	cudaMalloc<uchar>(&d_img, size);
+	cudaMemcpy(d_img,img.ptr(),size,cudaMemcpyHostToDevice);
+
+	// device space for transformed image
+	int *d_hough;
+	cudaMalloc(&d_hough, nRows*nCols*sizeof(int));
+	cudaMemcpy(d_hough,accumulator,nRows*nCols*sizeof(int),cudaMemcpyHostToDevice);
+
+	//Specify a reasonable block size
+	const dim3 block(1, 1);
+	//Calculate grid size to cover the whole image
+	const dim3 grid(nCols, 1);
+
+	hough_kernel<<<grid,block>>>(d_img, img.cols, img.rows, d_hough, nRows, nCols);
+	cudaDeviceSynchronize();
+
+	cudaMemcpy(accumulator,d_hough,nRows*nCols*sizeof(int),cudaMemcpyDeviceToHost);
+	cudaFree(d_img);
+	cudaFree(d_hough);
+
+	for (int i = 0; i < nRows/2; i++) {
+		for (int j = 0; j < nCols; j++) {
+			if(accumulator[(i + (nRows / 2)) * nCols + j] == THRESHOLD)
+				lines.push_back( Line(j, i));
+		}
+	}
+	plotAccumulator(nRows, nCols, accumulator, "./res-cuda.jpg");
+
+	return lines;
 }

@@ -27,7 +27,7 @@ Mat detectLines(Mat img, int houghStrategy) {
 
     // Perform hough transform
     if (houghStrategy == CUDA) {
-        houghTransformCuda(preProcImg);
+        linesFound = houghTransformCuda(image);
     } else if (houghStrategy == SEQUENTIAL) {
         linesFound = houghTransformSeq(preProcImg);
     }
