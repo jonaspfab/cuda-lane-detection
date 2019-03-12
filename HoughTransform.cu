@@ -61,8 +61,9 @@ vector<Line> houghTransformSeq(Mat img) {
 
 				accumulator[(rho + (nRows / 2)) * nCols + k] += 1;
 
-				if(accumulator[(rho + (nRows / 2)) * nCols + k] == THRESHOLD)
+				if(accumulator[(rho + (nRows / 2)) * nCols + k] == THRESHOLD){
 					lines.push_back( Line(theta, rho));
+				}
 
    		}
 		}
@@ -75,10 +76,10 @@ vector<Line> houghTransformSeq(Mat img) {
 }
 
 __global__ void hough_kernel( unsigned char* img, int icols, int irows,
-															int* hough, int nRows, int nCols)
+															int* hough, int nCols, int nRows)
 {
 	//2D Index of current thread
-	int theta = threadIdx.x*STEP_SIZE;
+	int theta = blockIdx.x;
 	double thetaRad = ((double)theta*3.14159265358979323846)/180.0;
 
 	for(int i = 0; i < icols; i++) {
@@ -104,44 +105,41 @@ __global__ void hough_kernel( unsigned char* img, int icols, int irows,
  * @param img Input image on which hough transform is performed
  */
 vector<Line> houghTransformCuda(Mat img) {
-	int size = img.cols * img.rows * sizeof(uchar);
-	vector<Line> lines;
-
+	int isize = img.cols * img.rows * sizeof(uchar);
 	int nRows = (int) ceil(sqrt(img.rows * img.rows + img.cols * img.cols)) * 2;
 	int nCols = 180 / STEP_SIZE;
 
-	cout<<img.cols<<"x"<<img.rows<<endl;
-	cout<<nCols<<"x"<<nRows<<endl;
+	vector<Line> lines;
 
 	int *accumulator;
 	accumulator = new int[nCols * nRows]();
 
 	// device space for original image
 	uchar *d_img;
-	cudaMalloc<uchar>(&d_img, size);
-	cudaMemcpy(d_img,img.ptr(),size,cudaMemcpyHostToDevice);
+	cudaMalloc<uchar>(&d_img, isize);
+	cudaMemcpy(d_img,img.ptr(),isize,cudaMemcpyHostToDevice);
 
 	// device space for transformed image
 	int *d_hough;
 	cudaMalloc(&d_hough, nRows*nCols*sizeof(int));
 	cudaMemcpy(d_hough,accumulator,nRows*nCols*sizeof(int),cudaMemcpyHostToDevice);
 
-	//Specify a reasonable block size
+	// kernell config
 	const dim3 block(1, 1);
-	//Calculate grid size to cover the whole image
 	const dim3 grid(nCols, 1);
 
-	hough_kernel<<<grid,block>>>(d_img, img.cols, img.rows, d_hough, nRows, nCols);
+	hough_kernel<<<grid,block>>>(d_img, img.cols, img.rows, d_hough, nCols, nRows);
 	cudaDeviceSynchronize();
 
 	cudaMemcpy(accumulator,d_hough,nRows*nCols*sizeof(int),cudaMemcpyDeviceToHost);
 	cudaFree(d_img);
 	cudaFree(d_hough);
 
-	for (int i = 0; i < nRows/2; i++) {
+	for (int i = 0; i < nRows; i++) {
 		for (int j = 0; j < nCols; j++) {
-			if(accumulator[(i + (nRows / 2)) * nCols + j] == THRESHOLD)
-				lines.push_back( Line(j, i));
+			if(accumulator[(i * nCols) + j] >= THRESHOLD){
+				lines.push_back( Line(j, i-(nRows / 2)));
+			}
 		}
 	}
 	plotAccumulator(nRows, nCols, accumulator, "./res-cuda.jpg");

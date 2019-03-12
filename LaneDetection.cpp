@@ -37,7 +37,7 @@ int main(int argc, char *argv[]) {
     } else if (houghStrategy == SEQUENTIAL) {
         linesFound = houghTransformSeq(image);
     }
-
+    
     for (int i = 0; i < linesFound.size(); i++) {
         int x1 = 0;
         int x2 = image.cols;
@@ -45,12 +45,11 @@ int main(int argc, char *argv[]) {
         int y2 = (int)linesFound[i].getY(x2);
 
 
-
         line(image, Point(x1, y1), Point(x2, y2), Scalar(150), 1, 8, 0);
 
     }
 
-    imwrite("res2.png", image);
+    imwrite("lanes_hough.png", image);
 
 
     // Show result image
