@@ -1,7 +1,7 @@
 #include "HoughTransform.h"
 
 #define STEP_SIZE 1
-#define THRESHOLD 200
+#define THRESHOLD 75
 
 /**
  * Plots 'accumulator' and saves created image to 'dest' (This is for debugging
@@ -69,7 +69,7 @@ vector<Line> houghTransformSeq(Mat img) {
 		}
 	}
 
-	plotAccumulator(nRows, nCols, accumulator, "./res.jpg");
+	// plotAccumulator(nRows, nCols, accumulator, "./res.jpg");
 
 	return lines;
 
@@ -85,9 +85,9 @@ __global__ void hough_kernel( unsigned char* img, int icols, int irows,
 	for(int i = 0; i < icols; i++) {
 		for(int j = 0; j < irows; j++) {
 			//Location of gray pixel in output
-			int gray_tid  = (j * icols) + i;
+			int img_id  = (j * icols) + i;
 
-   		if (((uchar) img[gray_tid]) == 0)
+   		if (((uchar) img[img_id]) == 0)
    			continue;
 
 			int rho = (((double)i*cos(thetaRad)) + ((double)j*sin(thetaRad)));
@@ -95,6 +95,30 @@ __global__ void hough_kernel( unsigned char* img, int icols, int irows,
 			hough[(rho + (nRows / 2)) * nCols + theta] += 1;
 
 		}
+	}
+
+}
+
+__global__ void hough_kernel2( unsigned char* img, int icols, int irows,
+															int* hough, int nCols, int nRows)
+{
+	//2D Index of current thread
+	int theta = blockIdx.x;
+	double thetaRad = ((double)theta*3.14159265358979323846)/180.0;
+	double rho = blockIdx.y - (nRows/2);
+
+	for(int i = 0; i < icols; i++) {
+
+		double j = (rho - (((double)i)*cos(thetaRad)))/sin(thetaRad);
+		//Location of gray pixel in output
+		int img_id  = ((int)j * icols) + i;
+
+   		if (((uchar) img[img_id]) == 0)
+   			continue;
+
+
+		hough[(blockIdx.y) * nCols + blockIdx.x] += 1;
+
 	}
 
 }
@@ -142,7 +166,7 @@ vector<Line> houghTransformCuda(Mat img) {
 			}
 		}
 	}
-	plotAccumulator(nRows, nCols, accumulator, "./res-cuda.jpg");
+	// plotAccumulator(nRows, nCols, accumulator, "./res-cuda.jpg");
 
 	return lines;
 }
