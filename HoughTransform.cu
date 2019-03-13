@@ -75,6 +75,7 @@ vector<Line> houghTransformSeq(Mat img) {
 
 }
 
+
 __global__ void hough_kernel( unsigned char* img, int icols, int irows,
 															int* hough, int nCols, int nRows)
 {
@@ -106,14 +107,15 @@ __global__ void hough_kernel2( unsigned char* img, int icols, int irows,
 	int theta = blockIdx.x;
 	double thetaRad = ((double)theta*3.14159265358979323846)/180.0;
 	double rho = blockIdx.y - (nRows/2);
+	int j;
 
 	for(int i = 0; i < icols; i++) {
 
-		double j = (rho - (((double)i)*cos(thetaRad)))/sin(thetaRad);
-		//Location of gray pixel in output
-		int img_id  = ((int)j * icols) + i;
+		j = (int)((rho - (((double)i)*cos(thetaRad)))/sin(thetaRad));
+		if(j>=irows || j<0)
+			continue;
 
-   		if (((uchar) img[img_id]) == 0)
+   		if (((uchar) img[(j * icols) + i]) == 0)
    			continue;
 
 
@@ -154,6 +156,10 @@ vector<Line> houghTransformCuda(Mat img) {
 
 	hough_kernel<<<grid,block>>>(d_img, img.cols, img.rows, d_hough, nCols, nRows);
 	cudaDeviceSynchronize();
+
+	cudaError err = cudaGetLastError();
+	if (err != cudaSuccess)
+    printf("Error: %s\n", cudaGetErrorString( err ));
 
 	cudaMemcpy(accumulator,d_hough,nRows*nCols*sizeof(int),cudaMemcpyDeviceToHost);
 	cudaFree(d_img);
