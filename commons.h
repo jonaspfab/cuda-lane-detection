@@ -11,6 +11,8 @@
 #include <stdio.h>
 
 #define PI 3.14159265358979323846
+#define FRAME_WIDTH 1280
+#define FRAME_HEIGHT 720
 
 using namespace cv;
 using namespace std;

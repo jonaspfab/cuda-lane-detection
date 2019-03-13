@@ -48,3 +48,13 @@ Mat regionOfInterest(Mat img) {
 
 	return img;
 }
+
+Mat applyPreprocessing(Mat img) {
+	img = filterLanes(img);
+	img = applyGaussianBlur(img);
+	img = applyCannyEdgeDetection(img);
+	img = regionOfInterest(img);
+
+	return img;
+}
+

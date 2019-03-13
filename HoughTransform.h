@@ -1,18 +1,8 @@
 #include <math.h>
 #include "Line.h"
+#include "Preprocessing.h"
 #include "commons.h"
 
-/**
- * Performs sequential hough transform on given image
- *
- * @param image Input image on which hough transform is performed
- */
-vector<Line> houghTransformSeq(Mat image) ;
+void houghTransformSeq(VideoCapture capture, VideoWriter writer);
 
-/**
- * Performs hough transform on given image using CUDA
- *
- * @param image Input image on which hough transform is performed
- */
-
-vector<Line> houghTransformCuda(Mat image) ;
+void houghTransformCuda(VideoCapture capture, VideoWriter writer) ;
