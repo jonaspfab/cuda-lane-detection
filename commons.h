@@ -9,6 +9,7 @@
 #include <iostream>
 #include <vector>
 #include <stdio.h>
+#include <ctime>
 
 #define PI 3.14159265358979323846
 #define FRAME_WIDTH 1280

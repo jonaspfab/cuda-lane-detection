@@ -1,10 +1,12 @@
 #include "HoughTransform.h"
 
-#define STEP_SIZE 1
-#define THRESHOLD 75
+#define STEP_SIZE 0.1
+#define THRESHOLD 100
 #define THETA_A 45.0
 #define THETA_B 135.0
-#define THETA_VARIATION 15.0
+#define THETA_VARIATION 16.0
+
+using namespace thrust;
 
 extern void drawLines(vector<Line> lines, Mat img);
 extern void plotAccumulator(int nRows, int nCols, int *accumulator, const char *dest);
@@ -40,25 +42,33 @@ void houghTransformSeq(VideoCapture capture, VideoWriter writer) {
 		t = clock();
 		memset(accumulator, 0, nCols * nRows * sizeof(int));
 		lines.clear();
+        
+        int rho;
+        double theta;
 
 		for(int i = 0; i < FRAME_HEIGHT; i++) {
 			for (int j = 0; j < FRAME_WIDTH; j++) {
 				if ((int) frame.at<uchar>(i, j) == 0)
 					continue;
+                
+                // thetas of interest will be close to 45 and close to 135 (vertical lines)
+                // we are doing 2 thetas at a time, 1 for each theta of Interest
+                // we use thetas varying 15 degrees more and less
+                for(int k = 0; k<2*THETA_VARIATION*(1/STEP_SIZE); k++){
+                    theta = THETA_A-THETA_VARIATION + ((double)k*STEP_SIZE);
+                    rho = calcRho(j, i, theta);
+                    accumulator[(rho + (nRows / 2)) * nCols + (int)(theta/STEP_SIZE)] += 1;
+                    
+                    if (accumulator[(rho + (nRows / 2)) * nCols + (int)(theta/STEP_SIZE)] == THRESHOLD)
+                        lines.push_back( Line(theta, rho));
 
-				// thetas of interest near 45 and near 135 (+/- 15degrees)
-				for (int k = 0; k < nCols; k++) {
-
-					double theta = ((double) k) * STEP_SIZE;
-					int rho = calcRho(j, i, theta);
-
-					accumulator[(rho + (nRows / 2)) * nCols + k] += 1;
-
-					if(accumulator[(rho + (nRows / 2)) * nCols + k] == THRESHOLD){
-						lines.push_back( Line(theta, rho));
-					}
-
-				}
+                    theta = THETA_B-THETA_VARIATION + ((double)k*STEP_SIZE);
+                    rho = calcRho(j, i, theta);
+                    accumulator[(rho + (nRows / 2)) * nCols + (int)(theta/STEP_SIZE)] += 1;
+                    
+                    if (accumulator[(rho + (nRows / 2)) * nCols + (int)(theta/STEP_SIZE)] == THRESHOLD)
+                        lines.push_back( Line(theta, rho));
+                }
 			}
 		}
 		houghTime += clock()-t;
@@ -86,8 +96,8 @@ __global__ void houghKernel(unsigned char* frame, int nRows, int nCols, int *acc
 }
 
 __global__ void houghKernel2(unsigned char* frame, int nRows, int nCols, int *accumulator) {
-	int i = (blockIdx.x*blockDim.x)+threadIdx.x;
-	int j = (blockIdx.y*blockDim.y)+threadIdx.y;
+	int i = (blockIdx.x*blockDim.y)+threadIdx.y;
+	int j = (blockIdx.y*blockDim.z)+threadIdx.z;
 	double theta;
 	int rho;
 
@@ -96,7 +106,7 @@ __global__ void houghKernel2(unsigned char* frame, int nRows, int nCols, int *ac
 		// thetas of interest will be close to 45 and close to 135 (vertical lines)
 		// we are doing 2 thetas at a time, 1 for each theta of Interest
 		// we use thetas varying 15 degrees more and less
-		for(int k = 0; k<2*THETA_VARIATION*(1/STEP_SIZE); k++){
+		for(int k = threadIdx.x*(1/STEP_SIZE); k<(threadIdx.x+1)*(1/STEP_SIZE); k++){
 			theta = THETA_A-THETA_VARIATION + ((double)k*STEP_SIZE);
 			rho = calcRho(j, i, theta);
 			atomicAdd(&accumulator[(rho + (nRows / 2)) * nCols + (int)(theta/STEP_SIZE)], 1);
@@ -108,6 +118,26 @@ __global__ void houghKernel2(unsigned char* frame, int nRows, int nCols, int *ac
 	}
 }
 
+__global__ void findLinesKernel(int nRows, int nCols, int *accumulator, vector<Line> &lines) {
+    //Lock lock;
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (accumulator[i * nRows + j] < THRESHOLD)
+        return;
+
+    for (int i_delta = -5; i_delta <= 5; i_delta++) {
+        for (int j_delta = -5; j_delta <= 5; j_delta++) {
+            if (accumulator[(i + i_delta) * nRows + j + j_delta] > accumulator[i + nRows + j])
+                return;
+        }
+    }
+/*
+    lock.lock();
+    lines.push_back(Line(j*STEP_SIZE, i - (nRows / 2)));
+    lock.unlock();*/
+}
+
 void houghTransformCuda(VideoCapture capture, VideoWriter writer) {
 	int frameSize = FRAME_WIDTH * FRAME_HEIGHT * sizeof(uchar);
 	int nRows = (int) ceil(sqrt(FRAME_HEIGHT * FRAME_HEIGHT + FRAME_WIDTH * FRAME_WIDTH)) * 2;
@@ -115,7 +145,8 @@ void houghTransformCuda(VideoCapture capture, VideoWriter writer) {
 
 	int *accumulator;
 	accumulator = new int[nCols * nRows]();
-	vector<Line> lines;
+    host_vector<Line> lines;
+    device_vector<Line> d_lines;
 
 	// device space for original image
 	uchar *d_frame;
@@ -130,8 +161,8 @@ void houghTransformCuda(VideoCapture capture, VideoWriter writer) {
 	// const dim3 block(180 / STEP_SIZE);
 	// const dim3 grid(FRAME_HEIGHT, FRAME_WIDTH);
 	// kernell config 2
-	const dim3 block(32, 32);
-	const dim3 grid(ceil(FRAME_HEIGHT/32), ceil(FRAME_WIDTH/32));
+	const dim3 block(32, 5, 5);
+	const dim3 grid(ceil(FRAME_HEIGHT/5), ceil(FRAME_WIDTH/5));
 
 	Mat originalFrame, frame;
 
@@ -179,7 +210,7 @@ void houghTransformCuda(VideoCapture capture, VideoWriter writer) {
 
 		t = clock();
 		drawLines(lines, originalFrame);
-		writer.write(originalFrame);
+        writer << originalFrame;
 		drawTime += clock()-t;
 	}
 

@@ -57,4 +57,3 @@ Mat applyPreprocessing(Mat img) {
 
 	return img;
 }
-
