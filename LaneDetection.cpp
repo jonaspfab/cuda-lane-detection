@@ -1,5 +1,6 @@
 #include "commons.h"
 #include "HoughTransform.h"
+#include <time.h>
 
 #define CUDA 1
 #define SEQUENTIAL 2
@@ -22,14 +23,23 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
-    VideoWriter video("out.avi", VideoWriter::fourcc('M','J','P','G'), 30, 
+    VideoWriter video("out.avi", VideoWriter::fourcc('M','J','P','G'), 30,
                       Size(FRAME_WIDTH, FRAME_HEIGHT), true);
+    clock_t t;
 
     // Perform hough transform
     if (houghStrategy == CUDA) {
-        houghTransformCuda(capture, video);
+      cout<<"Processing video with CUDA"<<endl;
+      t = clock();
+      houghTransformCuda(capture, video);
+      t = clock()-t;
+      cout<<"Time: "<<(((float)t)/CLOCKS_PER_SEC)<<endl;
     } else if (houghStrategy == SEQUENTIAL) {
-        houghTransformSeq(capture, video);
+      cout<<"Processing video Sequentially"<<endl;
+      t = clock();
+      houghTransformSeq(capture, video);
+      t = clock()-t;
+      cout<<"Time: "<<(((float)t)/CLOCKS_PER_SEC)<<endl;
     }
 
     return 0;
