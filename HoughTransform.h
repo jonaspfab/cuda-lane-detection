@@ -1,5 +1,4 @@
 #include <math.h>
-#include "Line.h"
 #include "Preprocessing.h"
 #include "commons.h"
 #include <thrust/device_vector.h>

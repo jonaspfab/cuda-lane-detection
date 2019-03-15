@@ -1,14 +1,40 @@
 #include "HoughTransform.h"
 
 #define STEP_SIZE 0.1
-#define THRESHOLD 100
+#define THRESHOLD 125
 #define THETA_A 45.0
 #define THETA_B 135.0
 #define THETA_VARIATION 16.0
 
 using namespace thrust;
 
-extern void drawLines(vector<Line> lines, Mat img);
+class Line {
+    
+private:
+    double theta;
+    double rho;
+    
+public:
+    
+    __host__ __device__  Line(double theta, double rho){
+        this->theta = theta;
+        this->rho = rho;
+    }
+    
+    __host__ __device__ double getY(double x) {
+        double thetaRadian = (theta * PI) / 180.0;
+        
+        return (rho  - x * cos(thetaRadian)) / sin(thetaRadian);
+    }
+    
+    __host__ __device__ double getX(double y) {
+        double thetaRadian = (theta * PI) / 180.0;
+        
+        return (rho - y * sin(thetaRadian)) / cos(thetaRadian);
+    }
+};
+
+void drawLine(Line line, Mat img);
 extern void plotAccumulator(int nRows, int nCols, int *accumulator, const char *dest);
 extern __host__ __device__ double calcRho(double x, double y, double theta);
 
@@ -74,7 +100,8 @@ void houghTransformSeq(VideoCapture capture, VideoWriter writer) {
 		houghTime += clock()-t;
 
 		t = clock();
-		drawLines(lines, originalFrame);
+        for (int i = 0; i < lines.size(); i++)
+            drawLine(lines[i], originalFrame);
 		writer.write(originalFrame);
 		drawTime += clock()-t;
 	}
@@ -82,7 +109,6 @@ void houghTransformSeq(VideoCapture capture, VideoWriter writer) {
 	cout<<"Prep Time: "<<(((float)prepTime)/CLOCKS_PER_SEC)<<endl;
 	cout<<"Hough Time: "<<(((float)houghTime)/CLOCKS_PER_SEC)<<endl;
 	cout<<"Write Time: "<<(((float)drawTime)/CLOCKS_PER_SEC)<<endl;
-
 }
 
 __global__ void houghKernel(unsigned char* frame, int nRows, int nCols, int *accumulator) {
@@ -118,24 +144,24 @@ __global__ void houghKernel2(unsigned char* frame, int nRows, int nCols, int *ac
 	}
 }
 
-__global__ void findLinesKernel(int nRows, int nCols, int *accumulator, vector<Line> &lines) {
-    //Lock lock;
+__global__ void findLinesKernel(int nRows, int nCols, int *accumulator, Line *lines, int *lineCounter) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
 
-    if (accumulator[i * nRows + j] < THRESHOLD)
+    if (accumulator[i * nCols + j] < THRESHOLD)
         return;
 
-    for (int i_delta = -5; i_delta <= 5; i_delta++) {
-        for (int j_delta = -5; j_delta <= 5; j_delta++) {
-            if (accumulator[(i + i_delta) * nRows + j + j_delta] > accumulator[i + nRows + j])
+    for (int i_delta = -50; i_delta <= 50; i_delta++) {
+        for (int j_delta = -50; j_delta <= 50; j_delta++) {
+            if (i + i_delta > 0 && i + i_delta < nRows && j + j_delta > 0 && j + j_delta < nCols &&
+                accumulator[(i + i_delta) * nCols + j + j_delta] > accumulator[i * nCols + j]) {
                 return;
+            }
         }
     }
-/*
-    lock.lock();
-    lines.push_back(Line(j*STEP_SIZE, i - (nRows / 2)));
-    lock.unlock();*/
+
+    int insertPt = atomicAdd(lineCounter, 1);
+    lines[insertPt%10] = Line(j*STEP_SIZE, i - (nRows / 2));
 }
 
 void houghTransformCuda(VideoCapture capture, VideoWriter writer) {
@@ -143,10 +169,13 @@ void houghTransformCuda(VideoCapture capture, VideoWriter writer) {
 	int nRows = (int) ceil(sqrt(FRAME_HEIGHT * FRAME_HEIGHT + FRAME_WIDTH * FRAME_WIDTH)) * 2;
 	int nCols = 180 / STEP_SIZE;
 
-	int *accumulator;
-	accumulator = new int[nCols * nRows]();
-    host_vector<Line> lines;
-    device_vector<Line> d_lines;
+    Line *lines;
+    lines = (Line *) malloc(10 * sizeof(Line));
+    Line *d_lines;
+    cudaMalloc(&d_lines, 10 * sizeof(Line));
+    int lineCounter = 0;
+    int *d_lineCounter;
+    cudaMalloc(&d_lineCounter, sizeof(int));
 
 	// device space for original image
 	uchar *d_frame;
@@ -163,6 +192,9 @@ void houghTransformCuda(VideoCapture capture, VideoWriter writer) {
 	// kernell config 2
 	const dim3 block(32, 5, 5);
 	const dim3 grid(ceil(FRAME_HEIGHT/5), ceil(FRAME_WIDTH/5));
+    
+    const dim3 findLinesBlock(32, 32);
+    const dim3 findLinesGrid(ceil(nRows / 32), ceil(nCols / 32));
 
 	Mat originalFrame, frame;
 
@@ -188,28 +220,31 @@ void houghTransformCuda(VideoCapture capture, VideoWriter writer) {
 		t = clock();
 		cudaMemcpy(d_frame, frame.ptr(), frameSize, cudaMemcpyHostToDevice);
 		cudaMemset(d_accumulator, 0, nRows * nCols * sizeof(int));
-		lines.clear();
 
 		houghKernel2<<<grid,block>>>(d_frame, nRows, nCols, d_accumulator);
 		cudaDeviceSynchronize();
 
-		cudaMemcpy(accumulator, d_accumulator, nRows * nCols * sizeof(int), cudaMemcpyDeviceToHost);
-
 		cudaError err = cudaGetLastError();
 		if (err != cudaSuccess)
-		printf("Error: %s\n", cudaGetErrorString( err ));
+            printf("Error: %s\n", cudaGetErrorString( err ));
+        
+        cudaMemset(d_lineCounter, 0, sizeof(int));
 
-		for (int i = 0; i < nRows; i++) {
-			for (int j = 0; j < nCols; j++) {
-				if(accumulator[(i * nCols) + j] >= THRESHOLD){
-				  lines.push_back( Line(j*STEP_SIZE, i - (nRows / 2)));
-				}
-			}
-		}
+        findLinesKernel<<<findLinesGrid, findLinesBlock>>>(nRows, nCols, d_accumulator, d_lines, d_lineCounter);
+        cudaDeviceSynchronize();
+        
+        err = cudaGetLastError();
+        if (err != cudaSuccess)
+            printf("Error2: %s\n", cudaGetErrorString( err ));
+        
+        cudaMemcpy(&lineCounter, d_lineCounter, sizeof(int), cudaMemcpyDeviceToHost);
+        cudaMemcpy(lines, d_lines, 10 * sizeof(Line), cudaMemcpyDeviceToHost);
+
 		houghTime += clock()-t;
 
 		t = clock();
-		drawLines(lines, originalFrame);
+        for (int i = 0; i < lineCounter; i++)
+            drawLine(lines[i], originalFrame);
         writer << originalFrame;
 		drawTime += clock()-t;
 	}
@@ -223,15 +258,13 @@ void houghTransformCuda(VideoCapture capture, VideoWriter writer) {
 	cudaFree(d_accumulator);
 }
 
-void drawLines(vector<Line> lines, Mat img) {
-	for (int i = 0; i < lines.size(); i++) {
-        int y1 = img.rows;
-        int y2 = (img.rows / 2) + (img.rows / 10);
-        int x1 = (int) lines[i].getX(y1);
-        int x2 = (int) lines[i].getX(y2);
+void drawLine(Line l, Mat img) {
+    int y1 = img.rows;
+    int y2 = (img.rows / 2) + (img.rows / 10);
+    int x1 = (int) l.getX(y1);
+    int x2 = (int) l.getX(y2);
 
-        line(img, Point(x1, y1), Point(x2, y2), Scalar(255), 5, 8, 0);
-    }
+    line(img, Point(x1, y1), Point(x2, y2), Scalar(255), 5, 8, 0);
 }
 
 /**
