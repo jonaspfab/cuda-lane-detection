@@ -2,7 +2,8 @@
 
 using namespace thrust;
 
-#define STEP_SIZE 0.1
+#define THETA_STEP_SIZE 0.1
+#define RHO_STEP_SIZE 2
 #define THRESHOLD 125
 #define THETA_A 45.0
 #define THETA_B 135.0
@@ -34,7 +35,26 @@ __host__ __device__ double calcRho(double x, double y, double theta) {
  * @param theta Theta value for determining column in accumulator
  */
 __host__ __device__ int index(int nRows, int nCols, int rho, double theta) {
-    return (rho + (nRows / 2)) * nCols + (int) (theta / STEP_SIZE);
+    return ((rho / RHO_STEP_SIZE) + (nRows / 2)) * nCols + (int) (theta / THETA_STEP_SIZE + 0.5);
+}
+
+/**
+ * Checks whether value at i and j is a local maxima
+ *
+ * In order to only find the local maxima all surrounding values are checked if
+ * they are bigger
+ */
+ __host__ __device__ bool isLocalMaxima(int i, int j, int nRows, int nCols, int *accumulator) {
+    for (int i_delta = -50; i_delta <= 50; i_delta++) {
+        for (int j_delta = -50; j_delta <= 50; j_delta++) {
+            if (i + i_delta > 0 && i + i_delta < nRows && j + j_delta > 0 && j + j_delta < nCols &&
+                accumulator[(i + i_delta) * nCols + j + j_delta] > accumulator[i * nCols + j]) {
+                return false;
+            }
+        }
+    }
+
+    return true;
 }
 
 /**
@@ -60,21 +80,24 @@ void houghTransformSeq(HoughTransformHandle *handle, Mat frame, vector<Line> &li
             // thetas of interest will be close to 45 and close to 135 (vertical lines)
             // we are doing 2 thetas at a time, 1 for each theta of Interest
             // we use thetas varying 15 degrees more and less
-            for(int k = 0; k < 2 * THETA_VARIATION * (1 / STEP_SIZE); k++){
-                theta = THETA_A - THETA_VARIATION + ((double) k * STEP_SIZE);
+            for(int k = 0; k < 2 * THETA_VARIATION * (1 / THETA_STEP_SIZE); k++){
+                theta = THETA_A - THETA_VARIATION + ((double) k * THETA_STEP_SIZE);
                 rho = calcRho(j, i, theta);
                 h->accumulator[index(h->nRows, h->nCols, rho, theta)] += 1;
 
-                if (h->accumulator[index(h->nRows, h->nCols, rho, theta)] == THRESHOLD)
-                    lines.push_back( Line(theta, rho));
-
-                theta = THETA_B-THETA_VARIATION + ((double) k * STEP_SIZE);
+                theta = THETA_B-THETA_VARIATION + ((double) k * THETA_STEP_SIZE);
                 rho = calcRho(j, i, theta);
                 h->accumulator[index(h->nRows, h->nCols, rho, theta)] += 1;
-                
-                if (h->accumulator[index(h->nRows, h->nCols, rho, theta)] == THRESHOLD)
-                    lines.push_back( Line(theta, rho));
             }
+        }
+    }
+
+    // Find lines
+    for (int i = 0; i < h->nRows; i++) {
+        for (int j = 0; j < h->nCols; j++) {
+            if (h->accumulator[i * h->nCols + j] >= THRESHOLD &&
+                isLocalMaxima(i, j, h->nRows, h->nCols, h->accumulator))
+                lines.push_back(Line(j * THETA_STEP_SIZE, (i - (h->nRows / 2)) * RHO_STEP_SIZE));
         }
     }
 }
@@ -89,17 +112,17 @@ __global__ void houghKernel(unsigned char* frame, int nRows, int nCols, int *acc
 	double theta;
 	int rho;
 
-	if(i<FRAME_HEIGHT && j<FRAME_WIDTH && ((int) frame[(i * FRAME_WIDTH) + j]) != 0) {
+	if(i < FRAME_HEIGHT && j < FRAME_WIDTH && ((int) frame[(i * FRAME_WIDTH) + j]) != 0) {
 
 		// thetas of interest will be close to 45 and close to 135 (vertical lines)
 		// we are doing 2 thetas at a time, 1 for each theta of Interest
 		// we use thetas varying 15 degrees more and less
-		for(int k = threadIdx.x*(1/STEP_SIZE); k<(threadIdx.x+1)*(1/STEP_SIZE); k++){
-			theta = THETA_A-THETA_VARIATION + ((double)k*STEP_SIZE);
+		for(int k = threadIdx.x * (1 / THETA_STEP_SIZE); k < (threadIdx.x + 1) * (1 / THETA_STEP_SIZE); k++) {
+			theta = THETA_A-THETA_VARIATION + ((double)k*THETA_STEP_SIZE);
 			rho = calcRho(j, i, theta);
 			atomicAdd(&accumulator[index(nRows, nCols, rho, theta)], 1);
 
-			theta = THETA_B-THETA_VARIATION + ((double)k*STEP_SIZE);
+			theta = THETA_B-THETA_VARIATION + ((double)k*THETA_STEP_SIZE);
 			rho = calcRho(j, i, theta);
 			atomicAdd(&accumulator[index(nRows, nCols, rho, theta)], 1);
 		}
@@ -114,24 +137,12 @@ __global__ void findLinesKernel(int nRows, int nCols, int *accumulator, int *lin
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
 
-    if (accumulator[i * nCols + j] < THRESHOLD)
-        return;
-
-    // In order to only find the local maxima we only consider values which are
-    // bigger than any surrounding values
-    for (int i_delta = -50; i_delta <= 50; i_delta++) {
-        for (int j_delta = -50; j_delta <= 50; j_delta++) {
-            if (i + i_delta > 0 && i + i_delta < nRows && j + j_delta > 0 && j + j_delta < nCols &&
-                accumulator[(i + i_delta) * nCols + j + j_delta] > accumulator[i * nCols + j]) {
-                return;
-            }
+    if (accumulator[i * nCols + j] >= THRESHOLD && isLocalMaxima(i, j, nRows, nCols, accumulator)) {
+        int insertPt = atomicAdd(lineCounter, 2);
+        if (insertPt + 1 < 2 * MAX_NUM_LINES) {
+            lines[insertPt] = j * THETA_STEP_SIZE;
+            lines[insertPt + 1] = (i - (nRows / 2)) * RHO_STEP_SIZE;
         }
-    }
-
-    int insertPt = atomicAdd(lineCounter, 2);
-    if (insertPt + 1 < 2 * MAX_NUM_LINES) {
-        lines[insertPt] = j * STEP_SIZE;
-        lines[insertPt + 1] = i - (nRows / 2);
     }
 }
 
@@ -177,8 +188,8 @@ void houghTransformCuda(HoughTransformHandle *handle, Mat frame, vector<Line> &l
  * @param houghStrategy Strategy used to perform hough transform
  */
 void createHandle(HoughTransformHandle *&handle, int houghStrategy) {
-    int nRows = (int) ceil(sqrt(FRAME_HEIGHT * FRAME_HEIGHT + FRAME_WIDTH * FRAME_WIDTH)) * 2;
-    int nCols = 180 / STEP_SIZE;
+    int nRows = (int) ceil(sqrt(FRAME_HEIGHT * FRAME_HEIGHT + FRAME_WIDTH * FRAME_WIDTH)) * 2 / RHO_STEP_SIZE;
+    int nCols = 180 / THETA_STEP_SIZE;
 
     if (houghStrategy == CUDA) {
         CudaHandle *h = new CudaHandle();

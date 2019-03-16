@@ -1,5 +1,6 @@
 #include "commons.h"
 #include "HoughTransform.h"
+#include "Preprocessing.h"
 #include <time.h>
 
 extern void detectLanes(VideoCapture inputVideo, VideoWriter outputVideo, int houghStrategy);
@@ -91,6 +92,8 @@ void detectLanes(VideoCapture inputVideo, VideoWriter outputVideo, int houghStra
         writeTime += clock();
     }
 
+    destroyHandle(handle, houghStrategy);
+
     totalTime += clock();
     cout << "Read Time: " << (((float) readTime) / CLOCKS_PER_SEC) << endl;
 	cout << "Prep Time: " << (((float) prepTime) / CLOCKS_PER_SEC) << endl;
@@ -119,7 +122,7 @@ Mat plotAccumulator(int nRows, int nCols, int *accumulator) {
 	Mat plotImg(nRows, nCols, CV_8UC1, Scalar(0));
 	for (int i = 0; i < nRows; i++) {
   		for (int j = 0; j < nCols; j++) {
-			plotImg.at<uchar>(i, j) = min(accumulator[(i * nCols) + j], 255);
+			plotImg.at<uchar>(i, j) = min(accumulator[(i * nCols) + j] * 4, 255);
   		}
   	}
 
