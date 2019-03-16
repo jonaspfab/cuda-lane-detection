@@ -2,6 +2,7 @@
 
 #define KERNEL_SIZE 5
 
+/** Filters white and yellow lane markers from the image */
 Mat filterLanes(Mat img) {
 	Mat hsvImg;
 	Mat grayImg;
@@ -19,16 +20,22 @@ Mat filterLanes(Mat img) {
 	return grayImg;
 }
 
+/** Applys gaussian blur with kernel size 5 to image */
 Mat applyGaussianBlur(Mat img) {
 	GaussianBlur(img, img, Size(KERNEL_SIZE, KERNEL_SIZE), 0);
 	return img;
 }
 
+/** Applyes canny edge detection no given image */
 Mat applyCannyEdgeDetection(Mat img) {
 	Canny(img, img, 50, 150);
 	return img;
 }
 
+/** 
+ * Crops out region of interest from image. The region of interest is the 
+ * region which would usually contain the lane markers.
+ */
 Mat regionOfInterest(Mat img) {
 	Mat mask(img.rows, img.cols, CV_8UC1, Scalar(0));
 
@@ -45,15 +52,6 @@ Mat regionOfInterest(Mat img) {
 	// Fill polygon white
 	fillConvexPoly(mask, &ROI_Poly[0], ROI_Poly.size(), 255, 8, 0);
 	bitwise_and(img, mask, img);
-
-	return img;
-}
-
-Mat applyPreprocessing(Mat img) {
-	img = filterLanes(img);
-	img = applyGaussianBlur(img);
-	img = applyCannyEdgeDetection(img);
-	img = regionOfInterest(img);
 
 	return img;
 }

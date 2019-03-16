@@ -11,6 +11,9 @@
 #include <stdio.h>
 #include <ctime>
 
+#define CUDA 1
+#define SEQUENTIAL 2
+
 #define PI 3.14159265358979323846
 #define FRAME_WIDTH 1280
 #define FRAME_HEIGHT 720
