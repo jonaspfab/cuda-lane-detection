@@ -29,7 +29,7 @@ int main(int argc, char *argv[]) {
     }
 
     VideoWriter video(argv[2], VideoWriter::fourcc('M','J','P','G'), 30,
-                      Size(1800, 2938), true);
+                      Size(FRAME_WIDTH, FRAME_HEIGHT), true);
 
     detectLanes(capture, video, houghStrategy);
 
