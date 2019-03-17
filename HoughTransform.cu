@@ -83,11 +83,11 @@ void houghTransformSeq(HoughTransformHandle *handle, Mat frame, vector<Line> &li
             for(int k = 0; k < 2 * THETA_VARIATION * (1 / THETA_STEP_SIZE); k++){
                 theta = THETA_A - THETA_VARIATION + ((double) k * THETA_STEP_SIZE);
                 rho = calcRho(j, i, theta);
-                h->accumulator[index(h->nRows, h->nCols, rho, theta)] += 1;
+                h->accumulator[index(h->nRows, h->nCols, rho, theta-(THETA_A-THETA_VARIATION))] += 1;
 
                 theta = THETA_B-THETA_VARIATION + ((double) k * THETA_STEP_SIZE);
                 rho = calcRho(j, i, theta);
-                h->accumulator[index(h->nRows, h->nCols, rho, theta)] += 1;
+                h->accumulator[index(h->nRows, h->nCols, rho, theta-(THETA_A-THETA_VARIATION))] += 1;
             }
         }
     }
@@ -97,7 +97,7 @@ void houghTransformSeq(HoughTransformHandle *handle, Mat frame, vector<Line> &li
         for (int j = 0; j < h->nCols; j++) {
             if (h->accumulator[i * h->nCols + j] >= THRESHOLD &&
                 isLocalMaxima(i, j, h->nRows, h->nCols, h->accumulator))
-                lines.push_back(Line(j * THETA_STEP_SIZE, (i - (h->nRows / 2)) * RHO_STEP_SIZE));
+                lines.push_back(Line((THETA_A-THETA_VARIATION) + (j * THETA_STEP_SIZE), (i - (h->nRows / 2)) * RHO_STEP_SIZE));
         }
     }
 }
@@ -120,11 +120,11 @@ __global__ void houghKernel(unsigned char* frame, int nRows, int nCols, int *acc
 		for(int k = threadIdx.x * (1 / THETA_STEP_SIZE); k < (threadIdx.x + 1) * (1 / THETA_STEP_SIZE); k++) {
 			theta = THETA_A-THETA_VARIATION + ((double)k*THETA_STEP_SIZE);
 			rho = calcRho(j, i, theta);
-			atomicAdd(&accumulator[index(nRows, nCols, rho, theta)], 1);
+			atomicAdd(&accumulator[index(nRows, nCols, rho, theta-(THETA_A-THETA_VARIATION))], 1);
 
 			theta = THETA_B-THETA_VARIATION + ((double)k*THETA_STEP_SIZE);
 			rho = calcRho(j, i, theta);
-			atomicAdd(&accumulator[index(nRows, nCols, rho, theta)], 1);
+			atomicAdd(&accumulator[index(nRows, nCols, rho, theta-(THETA_A-THETA_VARIATION))], 1);
 		}
 	}
 }
@@ -140,7 +140,7 @@ __global__ void findLinesKernel(int nRows, int nCols, int *accumulator, int *lin
     if (accumulator[i * nCols + j] >= THRESHOLD && isLocalMaxima(i, j, nRows, nCols, accumulator)) {
         int insertPt = atomicAdd(lineCounter, 2);
         if (insertPt + 1 < 2 * MAX_NUM_LINES) {
-            lines[insertPt] = j * THETA_STEP_SIZE;
+            lines[insertPt] = THETA_A-THETA_VARIATION + (j * THETA_STEP_SIZE);
             lines[insertPt + 1] = (i - (nRows / 2)) * RHO_STEP_SIZE;
         }
     }
@@ -189,7 +189,7 @@ void houghTransformCuda(HoughTransformHandle *handle, Mat frame, vector<Line> &l
  */
 void createHandle(HoughTransformHandle *&handle, int houghStrategy) {
     int nRows = (int) ceil(sqrt(FRAME_HEIGHT * FRAME_HEIGHT + FRAME_WIDTH * FRAME_WIDTH)) * 2 / RHO_STEP_SIZE;
-    int nCols = 180 / THETA_STEP_SIZE;
+    int nCols = THETA_B -THETA_A + (2*THETA_VARIATION);//180 / THETA_STEP_SIZE;
 
     if (houghStrategy == CUDA) {
         CudaHandle *h = new CudaHandle();
