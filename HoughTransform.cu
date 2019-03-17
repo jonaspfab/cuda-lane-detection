@@ -39,12 +39,12 @@ __host__ __device__ int index(int nRows, int nCols, int rho, double theta) {
 }
 
 /**
- * Checks whether value at i and j is a local maxima
+ * Checks whether value at i and j is a local maximum
  *
- * In order to only find the local maxima all surrounding values are checked if
+ * In order to only find the local maximum all surrounding values are checked if
  * they are bigger
  */
- __host__ __device__ bool isLocalMaxima(int i, int j, int nRows, int nCols, int *accumulator) {
+ __host__ __device__ bool isLocalMaximum(int i, int j, int nRows, int nCols, int *accumulator) {
     for (int i_delta = -50; i_delta <= 50; i_delta++) {
         for (int j_delta = -50; j_delta <= 50; j_delta++) {
             if (i + i_delta > 0 && i + i_delta < nRows && j + j_delta > 0 && j + j_delta < nCols &&
@@ -96,7 +96,7 @@ void houghTransformSeq(HoughTransformHandle *handle, Mat frame, vector<Line> &li
     for (int i = 0; i < h->nRows; i++) {
         for (int j = 0; j < h->nCols; j++) {
             if (h->accumulator[i * h->nCols + j] >= THRESHOLD &&
-                isLocalMaxima(i, j, h->nRows, h->nCols, h->accumulator))
+                isLocalMaximum(i, j, h->nRows, h->nCols, h->accumulator))
                 lines.push_back(Line(j * THETA_STEP_SIZE, (i - (h->nRows / 2)) * RHO_STEP_SIZE));
         }
     }
@@ -137,7 +137,7 @@ __global__ void findLinesKernel(int nRows, int nCols, int *accumulator, int *lin
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
 
-    if (accumulator[i * nCols + j] >= THRESHOLD && isLocalMaxima(i, j, nRows, nCols, accumulator)) {
+    if (accumulator[i * nCols + j] >= THRESHOLD && isLocalMaximum(i, j, nRows, nCols, accumulator)) {
         int insertPt = atomicAdd(lineCounter, 2);
         if (insertPt + 1 < 2 * MAX_NUM_LINES) {
             lines[insertPt] = j * THETA_STEP_SIZE;
@@ -160,8 +160,7 @@ void houghTransformCuda(HoughTransformHandle *handle, Mat frame, vector<Line> &l
     cudaMemcpy(h->d_frame, frame.ptr(), h->frameSize, cudaMemcpyHostToDevice);
     cudaMemset(h->d_accumulator, 0, h->nRows * h->nCols * sizeof(int));
 
-    houghKernel<<<h->houghGridDim,h->houghBlockDim>>>(h->d_frame, h->nRows, h->nCols, 
-        h->d_accumulator);
+    houghKernel<<<h->houghGridDim,h->houghBlockDim>>>(h->d_frame, h->nRows, h->nCols, h->d_accumulator);
     cudaDeviceSynchronize();
 
     cudaError err = cudaGetLastError();
@@ -169,7 +168,7 @@ void houghTransformCuda(HoughTransformHandle *handle, Mat frame, vector<Line> &l
         printf("Error: %s\n", cudaGetErrorString( err ));
 
     cudaMemset(h->d_lineCounter, 0, sizeof(int));
-    findLinesKernel<<<h->findLinesGridDim, h->findLinesBlockDim>>>(h->nRows, h->nCols, 
+    findLinesKernel<<<h->findLinesGridDim, h->findLinesBlockDim>>>(h->nRows, h->nCols,
         h->d_accumulator, h->d_lines, h->d_lineCounter);
     cudaDeviceSynchronize();
 
