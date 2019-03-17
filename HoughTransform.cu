@@ -60,10 +60,10 @@ __host__ __device__ int index(int nRows, int nCols, int rho, double theta) {
 /**
  * Performs hough transform for given frame sequentially and adds found lines
  * in 'lines' vector
- * 
+ *
  * @param handle Handle tracking relevant info accross executions
  * @param frame Video frame on which hough transform is applied
- * @param lines Vector to which found lines are added to 
+ * @param lines Vector to which found lines are added to
  */
 void houghTransformSeq(HoughTransformHandle *handle, Mat frame, vector<Line> &lines) {
     SeqHandle *h = (SeqHandle *) handle;
@@ -103,7 +103,7 @@ void houghTransformSeq(HoughTransformHandle *handle, Mat frame, vector<Line> &li
 }
 
 /**
- * CUDA kernel responsible for trying all different rho/theta combinations for 
+ * CUDA kernel responsible for trying all different rho/theta combinations for
  * non-zero pixels and adding votes to accumulator
  */
 __global__ void houghKernel(unsigned char* frame, int nRows, int nCols, int *accumulator) {
@@ -149,10 +149,10 @@ __global__ void findLinesKernel(int nRows, int nCols, int *accumulator, int *lin
 /**
  * Performs hough transform for given frame using CUDA and adds found lines
  * in 'lines' vector
- * 
+ *
  * @param handle Handle tracking relevant info accross executions
  * @param frame Video frame on which hough transform is applied
- * @param lines Vector to which found lines are added to 
+ * @param lines Vector to which found lines are added to
  */
 void houghTransformCuda(HoughTransformHandle *handle, Mat frame, vector<Line> &lines) {
     CudaHandle *h = (CudaHandle *) handle;
@@ -160,7 +160,7 @@ void houghTransformCuda(HoughTransformHandle *handle, Mat frame, vector<Line> &l
     cudaMemcpy(h->d_frame, frame.ptr(), h->frameSize, cudaMemcpyHostToDevice);
     cudaMemset(h->d_accumulator, 0, h->nRows * h->nCols * sizeof(int));
 
-    houghKernel<<<h->houghGridDim,h->houghBlockDim>>>(h->d_frame, h->nRows, h->nCols, 
+    houghKernel<<<h->houghGridDim,h->houghBlockDim>>>(h->d_frame, h->nRows, h->nCols,
         h->d_accumulator);
     cudaDeviceSynchronize();
 
@@ -169,7 +169,7 @@ void houghTransformCuda(HoughTransformHandle *handle, Mat frame, vector<Line> &l
         printf("Error: %s\n", cudaGetErrorString( err ));
 
     cudaMemset(h->d_lineCounter, 0, sizeof(int));
-    findLinesKernel<<<h->findLinesGridDim, h->findLinesBlockDim>>>(h->nRows, h->nCols, 
+    findLinesKernel<<<h->findLinesGridDim, h->findLinesBlockDim>>>(h->nRows, h->nCols,
         h->d_accumulator, h->d_lines, h->d_lineCounter);
     cudaDeviceSynchronize();
 
@@ -183,7 +183,7 @@ void houghTransformCuda(HoughTransformHandle *handle, Mat frame, vector<Line> &l
 
 /**
  * Initializes handle object for given hough strategy
- * 
+ *
  * @param handle Handle to be initialized
  * @param houghStrategy Strategy used to perform hough transform
  */
@@ -194,7 +194,8 @@ void createHandle(HoughTransformHandle *&handle, int houghStrategy) {
     if (houghStrategy == CUDA) {
         CudaHandle *h = new CudaHandle();
         h->frameSize = FRAME_WIDTH * FRAME_HEIGHT * sizeof(uchar);
-        h->lines = (int *) malloc(2 * MAX_NUM_LINES * sizeof(int));
+				cudaMallocHost(&(h->lines), 2 * MAX_NUM_LINES * sizeof(int));
+        // h->lines = (int *) malloc(2 * MAX_NUM_LINES * sizeof(int));
         h->lineCounter = 0;
 
         cudaMalloc(&h->d_lines, 2 * MAX_NUM_LINES * sizeof(int));
@@ -220,7 +221,7 @@ void createHandle(HoughTransformHandle *&handle, int houghStrategy) {
 
 /**
  * Frees memory on host and device that was allocated for the handle
- * 
+ *
  * @param handle Handle to be destroyed
  * @param houghStrategy Hough strategy that was used to create the handle
  */
@@ -233,7 +234,7 @@ void destroyHandle(HoughTransformHandle *&handle, int houghStrategy) {
         cudaFree(h->d_frame);
         cudaFree(h->d_accumulator);
 
-        free(h->lines);
+        cudaFree(h->lines);
     } else if (houghStrategy == SEQUENTIAL) {
         SeqHandle *h = (SeqHandle *) handle;
         free(h->accumulator);
