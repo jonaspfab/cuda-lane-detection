@@ -60,10 +60,10 @@ __host__ __device__ int index(int nRows, int nCols, int rho, double theta) {
 /**
  * Performs hough transform for given frame sequentially and adds found lines
  * in 'lines' vector
- * 
+ *
  * @param handle Handle tracking relevant info accross executions
  * @param frame Video frame on which hough transform is applied
- * @param lines Vector to which found lines are added to 
+ * @param lines Vector to which found lines are added to
  */
 void houghTransformSeq(HoughTransformHandle *handle, Mat frame, vector<Line> &lines) {
     SeqHandle *h = (SeqHandle *) handle;
@@ -83,11 +83,11 @@ void houghTransformSeq(HoughTransformHandle *handle, Mat frame, vector<Line> &li
             for(int k = 0; k < 2 * THETA_VARIATION * (1 / THETA_STEP_SIZE); k++){
                 theta = THETA_A - THETA_VARIATION + ((double) k * THETA_STEP_SIZE);
                 rho = calcRho(j, i, theta);
-                h->accumulator[index(h->nRows, h->nCols, rho, theta)] += 1;
+                h->accumulator[index(h->nRows, h->nCols, rho, theta-(THETA_A-THETA_VARIATION))] += 1;
 
                 theta = THETA_B-THETA_VARIATION + ((double) k * THETA_STEP_SIZE);
                 rho = calcRho(j, i, theta);
-                h->accumulator[index(h->nRows, h->nCols, rho, theta)] += 1;
+                h->accumulator[index(h->nRows, h->nCols, rho, theta-(THETA_A-THETA_VARIATION))] += 1;
             }
         }
     }
@@ -97,13 +97,13 @@ void houghTransformSeq(HoughTransformHandle *handle, Mat frame, vector<Line> &li
         for (int j = 0; j < h->nCols; j++) {
             if (h->accumulator[i * h->nCols + j] >= THRESHOLD &&
                 isLocalMaximum(i, j, h->nRows, h->nCols, h->accumulator))
-                lines.push_back(Line(j * THETA_STEP_SIZE, (i - (h->nRows / 2)) * RHO_STEP_SIZE));
+                lines.push_back(Line((THETA_A-THETA_VARIATION) + (j * THETA_STEP_SIZE), (i - (h->nRows / 2)) * RHO_STEP_SIZE));
         }
     }
 }
 
 /**
- * CUDA kernel responsible for trying all different rho/theta combinations for 
+ * CUDA kernel responsible for trying all different rho/theta combinations for
  * non-zero pixels and adding votes to accumulator
  */
 __global__ void houghKernel(unsigned char* frame, int nRows, int nCols, int *accumulator) {
@@ -120,11 +120,11 @@ __global__ void houghKernel(unsigned char* frame, int nRows, int nCols, int *acc
 		for(int k = threadIdx.x * (1 / THETA_STEP_SIZE); k < (threadIdx.x + 1) * (1 / THETA_STEP_SIZE); k++) {
 			theta = THETA_A-THETA_VARIATION + ((double)k*THETA_STEP_SIZE);
 			rho = calcRho(j, i, theta);
-			atomicAdd(&accumulator[index(nRows, nCols, rho, theta)], 1);
+			atomicAdd(&accumulator[index(nRows, nCols, rho, theta-(THETA_A-THETA_VARIATION))], 1);
 
 			theta = THETA_B-THETA_VARIATION + ((double)k*THETA_STEP_SIZE);
 			rho = calcRho(j, i, theta);
-			atomicAdd(&accumulator[index(nRows, nCols, rho, theta)], 1);
+			atomicAdd(&accumulator[index(nRows, nCols, rho, theta-(THETA_A-THETA_VARIATION))], 1);
 		}
 	}
 }
@@ -140,7 +140,7 @@ __global__ void findLinesKernel(int nRows, int nCols, int *accumulator, int *lin
     if (accumulator[i * nCols + j] >= THRESHOLD && isLocalMaximum(i, j, nRows, nCols, accumulator)) {
         int insertPt = atomicAdd(lineCounter, 2);
         if (insertPt + 1 < 2 * MAX_NUM_LINES) {
-            lines[insertPt] = j * THETA_STEP_SIZE;
+            lines[insertPt] = THETA_A-THETA_VARIATION + (j * THETA_STEP_SIZE);
             lines[insertPt + 1] = (i - (nRows / 2)) * RHO_STEP_SIZE;
         }
     }
@@ -149,10 +149,10 @@ __global__ void findLinesKernel(int nRows, int nCols, int *accumulator, int *lin
 /**
  * Performs hough transform for given frame using CUDA and adds found lines
  * in 'lines' vector
- * 
+ *
  * @param handle Handle tracking relevant info accross executions
  * @param frame Video frame on which hough transform is applied
- * @param lines Vector to which found lines are added to 
+ * @param lines Vector to which found lines are added to
  */
 void houghTransformCuda(HoughTransformHandle *handle, Mat frame, vector<Line> &lines) {
     CudaHandle *h = (CudaHandle *) handle;
@@ -182,18 +182,19 @@ void houghTransformCuda(HoughTransformHandle *handle, Mat frame, vector<Line> &l
 
 /**
  * Initializes handle object for given hough strategy
- * 
+ *
  * @param handle Handle to be initialized
  * @param houghStrategy Strategy used to perform hough transform
  */
 void createHandle(HoughTransformHandle *&handle, int houghStrategy) {
     int nRows = (int) ceil(sqrt(FRAME_HEIGHT * FRAME_HEIGHT + FRAME_WIDTH * FRAME_WIDTH)) * 2 / RHO_STEP_SIZE;
-    int nCols = 180 / THETA_STEP_SIZE;
+    int nCols = THETA_B -THETA_A + (2*THETA_VARIATION);//180 / THETA_STEP_SIZE;
 
     if (houghStrategy == CUDA) {
         CudaHandle *h = new CudaHandle();
         h->frameSize = FRAME_WIDTH * FRAME_HEIGHT * sizeof(uchar);
-        h->lines = (int *) malloc(2 * MAX_NUM_LINES * sizeof(int));
+				cudaMallocHost(&(h->lines), 2 * MAX_NUM_LINES * sizeof(int));
+        // h->lines = (int *) malloc(2 * MAX_NUM_LINES * sizeof(int));
         h->lineCounter = 0;
 
         cudaMalloc(&h->d_lines, 2 * MAX_NUM_LINES * sizeof(int));
@@ -219,7 +220,7 @@ void createHandle(HoughTransformHandle *&handle, int houghStrategy) {
 
 /**
  * Frees memory on host and device that was allocated for the handle
- * 
+ *
  * @param handle Handle to be destroyed
  * @param houghStrategy Hough strategy that was used to create the handle
  */
@@ -232,7 +233,7 @@ void destroyHandle(HoughTransformHandle *&handle, int houghStrategy) {
         cudaFree(h->d_frame);
         cudaFree(h->d_accumulator);
 
-        free(h->lines);
+        cudaFreeHost(h->lines);
     } else if (houghStrategy == SEQUENTIAL) {
         SeqHandle *h = (SeqHandle *) handle;
         free(h->accumulator);
