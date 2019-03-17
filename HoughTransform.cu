@@ -234,7 +234,7 @@ void destroyHandle(HoughTransformHandle *&handle, int houghStrategy) {
         cudaFree(h->d_frame);
         cudaFree(h->d_accumulator);
 
-        cudaFree(h->lines);
+        cudaFreeHost(h->lines);
     } else if (houghStrategy == SEQUENTIAL) {
         SeqHandle *h = (SeqHandle *) handle;
         free(h->accumulator);
