@@ -2,6 +2,7 @@
 #include "HoughTransform.h"
 #include "Preprocessing.h"
 #include <time.h>
+#include <iomanip>
 
 extern void detectLanes(VideoCapture inputVideo, VideoWriter outputVideo, int houghStrategy);
 extern void drawLines(Mat &frame, vector<Line> lines);
@@ -23,6 +24,8 @@ int main(int argc, char *argv[]) {
     VideoCapture capture(argv[1]);
     // Check which strategy to use for hough transform (CUDA or sequential)
     int houghStrategy = argc > 3 && !strcmp(argv[3], "--seq") ? SEQUENTIAL : CUDA;
+    int frameWidth = capture.get(CAP_PROP_FRAME_WIDTH);
+    int frameHeight = capture.get(CAP_PROP_FRAME_HEIGHT);
 
     if (!capture.isOpened()) {
         cout << "Unable to open video" << endl;
@@ -30,7 +33,7 @@ int main(int argc, char *argv[]) {
     }
 
     VideoWriter video(argv[2], VideoWriter::fourcc('M','J','P','G'), 30,
-                      Size(FRAME_WIDTH, FRAME_HEIGHT), true);
+                      Size(frameWidth, frameHeight), true);
 
     detectLanes(capture, video, houghStrategy);
 
@@ -55,10 +58,13 @@ void detectLanes(VideoCapture inputVideo, VideoWriter outputVideo, int houghStra
 	clock_t writeTime = 0;
     clock_t totalTime = -clock();
 
-    HoughTransformHandle *handle;
-    createHandle(handle, houghStrategy);
+    int frameWidth = inputVideo.get(CAP_PROP_FRAME_WIDTH);
+    int frameHeight = inputVideo.get(CAP_PROP_FRAME_HEIGHT);
 
-    cout << "Processing video " << (houghStrategy == CUDA ? "using CUDA" : "Sequentially") << endl;
+    HoughTransformHandle *handle;
+    createHandle(handle, houghStrategy, frameWidth, frameHeight);
+
+    // cout << "Processing video " << (houghStrategy == CUDA ? "using CUDA" : "Sequentially") << endl;
 
 	for( ; ; ) {
         // Read next frame
@@ -95,11 +101,12 @@ void detectLanes(VideoCapture inputVideo, VideoWriter outputVideo, int houghStra
     destroyHandle(handle, houghStrategy);
 
     totalTime += clock();
-    cout << "Read Time: " << (((float) readTime) / CLOCKS_PER_SEC) << endl;
-	cout << "Prep Time: " << (((float) prepTime) / CLOCKS_PER_SEC) << endl;
-	cout << "Hough Time: " << (((float) houghTime) / CLOCKS_PER_SEC) << endl;
-	cout << "Write Time: " << (((float) writeTime) / CLOCKS_PER_SEC) << endl;
-    cout << "-> Total Time: " << (((float) totalTime) / CLOCKS_PER_SEC) << endl;
+	// cout<<"Read\tPrep\tHough\tWrite\tTotal"<<endl;
+	cout<< setprecision (4)<<(((float) readTime) / CLOCKS_PER_SEC) << "\t"
+		 << (((float) prepTime) / CLOCKS_PER_SEC) << "\t"
+		 << (((float) houghTime) / CLOCKS_PER_SEC) << "\t"
+		 << (((float) writeTime) / CLOCKS_PER_SEC) << "\t"
+    		 << (((float) totalTime) / CLOCKS_PER_SEC) << endl;
 }
 
 /** Draws given lines onto frame */

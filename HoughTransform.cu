@@ -21,9 +21,9 @@ using namespace thrust;
  * @return Rho describing distance of origin to closest point on tested line
  */
 __host__ __device__ double calcRho(double x, double y, double theta) {
-	double thetaRadian = (theta * PI) / 180.0;
+    double thetaRadian = (theta * PI) / 180.0;
 
-	return x * cos(thetaRadian) + y * sin(thetaRadian);
+    return x * cos(thetaRadian) + y * sin(thetaRadian);
 }
 
 /**
@@ -35,7 +35,8 @@ __host__ __device__ double calcRho(double x, double y, double theta) {
  * @param theta Theta value for determining column in accumulator
  */
 __host__ __device__ int index(int nRows, int nCols, int rho, double theta) {
-    return ((rho / RHO_STEP_SIZE) + (nRows / 2)) * nCols + (int) (theta / THETA_STEP_SIZE + 0.5);
+    return ((rho / RHO_STEP_SIZE) + (nRows / 2)) * nCols + 
+            (int) ((theta - (THETA_A-THETA_VARIATION)) / THETA_STEP_SIZE + 0.5);
 }
 
 /**
@@ -72,8 +73,8 @@ void houghTransformSeq(HoughTransformHandle *handle, Mat frame, vector<Line> &li
     int rho;
     double theta;
 
-    for(int i = 0; i < FRAME_HEIGHT; i++) {
-        for (int j = 0; j < FRAME_WIDTH; j++) {
+    for(int i = 0; i < frame.rows; i++) {
+        for (int j = 0; j < frame.cols; j++) {
             if ((int) frame.at<uchar>(i, j) == 0)
                 continue;
 
@@ -83,11 +84,11 @@ void houghTransformSeq(HoughTransformHandle *handle, Mat frame, vector<Line> &li
             for(int k = 0; k < 2 * THETA_VARIATION * (1 / THETA_STEP_SIZE); k++){
                 theta = THETA_A - THETA_VARIATION + ((double) k * THETA_STEP_SIZE);
                 rho = calcRho(j, i, theta);
-                h->accumulator[index(h->nRows, h->nCols, rho, theta-(THETA_A-THETA_VARIATION))] += 1;
+                h->accumulator[index(h->nRows, h->nCols, rho, theta)] += 1;
 
                 theta = THETA_B-THETA_VARIATION + ((double) k * THETA_STEP_SIZE);
                 rho = calcRho(j, i, theta);
-                h->accumulator[index(h->nRows, h->nCols, rho, theta-(THETA_A-THETA_VARIATION))] += 1;
+                h->accumulator[index(h->nRows, h->nCols, rho, theta)] += 1;
             }
         }
     }
@@ -106,27 +107,27 @@ void houghTransformSeq(HoughTransformHandle *handle, Mat frame, vector<Line> &li
  * CUDA kernel responsible for trying all different rho/theta combinations for
  * non-zero pixels and adding votes to accumulator
  */
-__global__ void houghKernel(unsigned char* frame, int nRows, int nCols, int *accumulator) {
-	int i = blockIdx.x * blockDim.y + threadIdx.y;
-	int j = blockIdx.y * blockDim.z + threadIdx.z;
-	double theta;
-	int rho;
+__global__ void houghKernel(int frameWidth, int frameHeight, unsigned char* frame, int nRows, int nCols, int *accumulator) {
+    int i = blockIdx.x * blockDim.y + threadIdx.y;
+    int j = blockIdx.y * blockDim.z + threadIdx.z;
+    double theta;
+    int rho;
 
-	if(i < FRAME_HEIGHT && j < FRAME_WIDTH && ((int) frame[(i * FRAME_WIDTH) + j]) != 0) {
+    if(i < frameHeight && j < frameWidth && ((int) frame[(i * frameWidth) + j]) != 0) {
 
-		// thetas of interest will be close to 45 and close to 135 (vertical lines)
-		// we are doing 2 thetas at a time, 1 for each theta of Interest
-		// we use thetas varying 15 degrees more and less
-		for(int k = threadIdx.x * (1 / THETA_STEP_SIZE); k < (threadIdx.x + 1) * (1 / THETA_STEP_SIZE); k++) {
-			theta = THETA_A-THETA_VARIATION + ((double)k*THETA_STEP_SIZE);
-			rho = calcRho(j, i, theta);
-			atomicAdd(&accumulator[index(nRows, nCols, rho, theta-(THETA_A-THETA_VARIATION))], 1);
+        // thetas of interest will be close to 45 and close to 135 (vertical lines)
+        // we are doing 2 thetas at a time, 1 for each theta of Interest
+        // we use thetas varying 15 degrees more and less
+        for(int k = threadIdx.x * (1 / THETA_STEP_SIZE); k < (threadIdx.x + 1) * (1 / THETA_STEP_SIZE); k++) {
+            theta = THETA_A-THETA_VARIATION + ((double)k*THETA_STEP_SIZE);
+            rho = calcRho(j, i, theta);
+            atomicAdd(&accumulator[index(nRows, nCols, rho, theta)], 1);
 
-			theta = THETA_B-THETA_VARIATION + ((double)k*THETA_STEP_SIZE);
-			rho = calcRho(j, i, theta);
-			atomicAdd(&accumulator[index(nRows, nCols, rho, theta-(THETA_A-THETA_VARIATION))], 1);
-		}
-	}
+            theta = THETA_B-THETA_VARIATION + ((double)k*THETA_STEP_SIZE);
+            rho = calcRho(j, i, theta);
+            atomicAdd(&accumulator[index(nRows, nCols, rho, theta)], 1);
+        }
+    }
 }
 
 /**
@@ -160,7 +161,7 @@ void houghTransformCuda(HoughTransformHandle *handle, Mat frame, vector<Line> &l
     cudaMemcpy(h->d_frame, frame.ptr(), h->frameSize, cudaMemcpyHostToDevice);
     cudaMemset(h->d_accumulator, 0, h->nRows * h->nCols * sizeof(int));
 
-    houghKernel<<<h->houghGridDim,h->houghBlockDim>>>(h->d_frame, h->nRows, h->nCols, h->d_accumulator);
+    houghKernel<<<h->houghGridDim,h->houghBlockDim>>>(frame.cols, frame.rows, h->d_frame, h->nRows, h->nCols, h->d_accumulator);
     cudaDeviceSynchronize();
 
     cudaError err = cudaGetLastError();
@@ -186,15 +187,14 @@ void houghTransformCuda(HoughTransformHandle *handle, Mat frame, vector<Line> &l
  * @param handle Handle to be initialized
  * @param houghStrategy Strategy used to perform hough transform
  */
-void createHandle(HoughTransformHandle *&handle, int houghStrategy) {
-    int nRows = (int) ceil(sqrt(FRAME_HEIGHT * FRAME_HEIGHT + FRAME_WIDTH * FRAME_WIDTH)) * 2 / RHO_STEP_SIZE;
-    int nCols = THETA_B -THETA_A + (2*THETA_VARIATION);//180 / THETA_STEP_SIZE;
+void createHandle(HoughTransformHandle *&handle, int houghStrategy, int frameWidth, int frameHeight) {
+    int nRows = (int) ceil(sqrt(frameHeight * frameHeight + frameWidth * frameWidth)) * 2 / RHO_STEP_SIZE;
+    int nCols = (THETA_B -THETA_A + (2*THETA_VARIATION)) / THETA_STEP_SIZE;
 
     if (houghStrategy == CUDA) {
         CudaHandle *h = new CudaHandle();
-        h->frameSize = FRAME_WIDTH * FRAME_HEIGHT * sizeof(uchar);
-				cudaMallocHost(&(h->lines), 2 * MAX_NUM_LINES * sizeof(int));
-        // h->lines = (int *) malloc(2 * MAX_NUM_LINES * sizeof(int));
+        h->frameSize = frameWidth * frameHeight * sizeof(uchar);
+        cudaMallocHost(&(h->lines), 2 * MAX_NUM_LINES * sizeof(int));
         h->lineCounter = 0;
 
         cudaMalloc(&h->d_lines, 2 * MAX_NUM_LINES * sizeof(int));
@@ -203,7 +203,7 @@ void createHandle(HoughTransformHandle *&handle, int houghStrategy) {
         cudaMalloc(&h->d_accumulator, nRows * nCols * sizeof(int));
 
         h->houghBlockDim = dim3(32, 5, 5);
-        h->houghGridDim = dim3(ceil(FRAME_HEIGHT / 5), ceil(FRAME_WIDTH / 5));
+        h->houghGridDim = dim3(ceil(frameHeight / 5), ceil(frameWidth / 5));
         h->findLinesBlockDim = dim3(32, 32);
         h->findLinesGridDim = dim3(ceil(nRows / 32), ceil(nCols / 32));
 

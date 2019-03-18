@@ -49,7 +49,7 @@ struct CudaHandle: HoughTransformHandle {
  * @param handle Handle to be initialized
  * @param houghStrategy Strategy used to perform hough transform
  */
-void createHandle(HoughTransformHandle *&handle, int houghStrategy);
+void createHandle(HoughTransformHandle *&handle, int houghStrategy, int frameWidth, int frameHeight);
 
 /**
  * Frees memory on host and device that was allocated for the handle
