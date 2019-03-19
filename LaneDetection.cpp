@@ -64,7 +64,7 @@ void detectLanes(VideoCapture inputVideo, VideoWriter outputVideo, int houghStra
     HoughTransformHandle *handle;
     createHandle(handle, houghStrategy, frameWidth, frameHeight);
 
-    // cout << "Processing video " << (houghStrategy == CUDA ? "using CUDA" : "Sequentially") << endl;
+    cout << "Processing video " << (houghStrategy == CUDA ? "using CUDA" : "Sequentially") << endl;
 
 	for( ; ; ) {
         // Read next frame
@@ -101,12 +101,12 @@ void detectLanes(VideoCapture inputVideo, VideoWriter outputVideo, int houghStra
     destroyHandle(handle, houghStrategy);
 
     totalTime += clock();
-	// cout<<"Read\tPrep\tHough\tWrite\tTotal"<<endl;
-	cout<< setprecision (4)<<(((float) readTime) / CLOCKS_PER_SEC) << "\t"
-		 << (((float) prepTime) / CLOCKS_PER_SEC) << "\t"
+	cout << "Read\tPrep\tHough\tWrite\tTotal" << endl;
+	cout << setprecision (4)<<(((float) readTime) / CLOCKS_PER_SEC) << "\t"
+         << (((float) prepTime) / CLOCKS_PER_SEC) << "\t"
 		 << (((float) houghTime) / CLOCKS_PER_SEC) << "\t"
 		 << (((float) writeTime) / CLOCKS_PER_SEC) << "\t"
-    		 << (((float) totalTime) / CLOCKS_PER_SEC) << endl;
+    	 << (((float) totalTime) / CLOCKS_PER_SEC) << endl;
 }
 
 /** Draws given lines onto frame */
